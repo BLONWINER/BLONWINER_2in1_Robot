@@ -3,7 +3,7 @@
 # Production  : BLONWINER 2in1 Robot
 # Author      : BLONWINER
 # Date        : 2023/11/30
-
+#updated version: Callyn Villanueva (09/22/25)
 import time
 import threading
 import move
@@ -458,25 +458,42 @@ if __name__ == '__main__':
         print('Use "sudo pip3 install rpi_ws281x" to install WS_281x package\n使用"sudo pip3 install rpi_ws281x"命令来安装rpi_ws281x')
         pass
 
-    while  1:
-        wifi_check()
-        try:                  #Start server,waiting for client
-            start_server = websockets.serve(main_logic, '0.0.0.0', 8888)
-            asyncio.get_event_loop().run_until_complete(start_server)
-            print('waiting for connection...')
-            # print('...connected from :', addr)
-            break
-        except Exception as e:
-            print(e)
-            RL.setColor(0,0,0)
+    import asyncio
+import websockets
 
-        try:
-            RL.setColor(0,80,255)
-        except:
-            pass
+async def main():
+    # Check WiFi once (spawns AP thread if offline)
     try:
-        asyncio.get_event_loop().run_forever()
+        wifi_check()
     except Exception as e:
         print(e)
-        RL.setColor(0,0,0)
-        move.destroy()
+
+    # Optional: set LED color to 'starting'
+    try:
+        RL.setColor(0, 80, 255)
+    except Exception:
+        pass
+
+    try:
+        # Start websocket server and keep running
+        async with websockets.serve(main_logic, '0.0.0.0', 8888):
+            print('waiting for connection...')
+            await asyncio.Event().wait()  # run forever
+    except Exception as e:
+        print(e)
+        try:
+            RL.setColor(0, 0, 0)
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            move.destroy()
+        except Exception:
+            pass
+
+if __name__ == '__main__':
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
