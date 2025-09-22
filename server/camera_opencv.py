@@ -4,7 +4,7 @@
 # E-mail      : blonwiner@outlook.com
 # Author      : BLONWINER
 # Date        : 2023/11/30
-# 
+# updated version for Raspberry Pi (model B) - Callyn Villanueva (09/21/2025)
 import os
 import cv2
 from base_camera import BaseCamera
@@ -37,6 +37,17 @@ ImgIsNone = 0
 
 colorUpper = np.array([44, 255, 255])
 colorLower = np.array([24, 100, 100])
+
+# ---- libcamera (GStreamer) pipeline for OpenCV ----
+def gst_pipeline(width=640, height=480, fps=30):
+    # You can adjust width/height/fps to taste
+    return (
+        f"libcamerasrc ! "
+        f"video/x-raw,width={width},height={height},framerate={fps}/1 ! "
+        f"videoconvert ! "
+        f"appsink"
+    )
+
 
 class CVThread(threading.Thread):
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -359,7 +370,7 @@ class CVThread(threading.Thread):
 
 
 class Camera(BaseCamera):
-    video_source = 0
+    video_source = gst_pipeline(640, 480, 30)
     modeSelect = 'none'
     # modeSelect = 'findlineCV'
     # modeSelect = 'findColor'
@@ -422,48 +433,53 @@ class Camera(BaseCamera):
     def errorSet(self, invar):
         global findLineError
         findLineError = invar
-
     @staticmethod
     def set_video_source(source):
-        Camera.video_source = source
+        Camera.video_source = source 
 
+
+     
     @staticmethod
     def frames():
         global ImgIsNone
-        camera = cv2.VideoCapture(Camera.video_source)
+
+        # Open via GStreamer if pipeline string, else fallback to numeric device id
+        if isinstance(Camera.video_source, str):
+            camera = cv2.VideoCapture(Camera.video_source, cv2.CAP_GSTREAMER)
+        else:
+            camera = cv2.VideoCapture(Camera.video_source)
+
         if not camera.isOpened():
-            raise RuntimeError('Could not start camera.')
+            raise RuntimeError('Could not start camera (check libcamerasrc / GStreamer).')
 
         cvt = CVThread()
         cvt.start()
 
         while True:
-            # read current frame
-            _, img = camera.read()
-            if img is None:
+            ok, img = camera.read()
+            if not ok or img is None:
                 if ImgIsNone == 0:
-                    print("The camera has not read data, please check whether the camera can be used normally.")
-                    print("Use the command: 'raspistill -t 1000 -o image.jpg'. Close the self-starting program webServer.py")
-                    print("Use the command: 'raspistill -t 1000 -o image.jpg' to check whether the camera can be used correctly.")
+                    print("Camera returned empty frame. Make sure nothing else is using it and that libcamerasrc is installed.")
+                    print("Hint: sudo fuser -v /dev/video0   # see which process holds the device")
                     ImgIsNone = 1
                 continue
 
             if Camera.modeSelect == 'none':
-                switch.switch(1,0)
+                switch.switch(1, 0)
                 cvt.pause()
             else:
-                if cvt.CVThreading:
-                    pass
-                else:
+                if not cvt.CVThreading:
                     cvt.mode(Camera.modeSelect, img)
                     cvt.resume()
                 try:
                     img = cvt.elementDraw(img)
                 except:
                     pass
-            
+
+            # encode as a JPEG and yield bytes
+            ok2, buf = cv2.imencode('.jpg', img)
+            if ok2:
+                yield buf.tobytes()
 
 
-            # encode as a jpeg image and return it
-            if cv2.imencode('.jpg', img)[0]:
-                yield cv2.imencode('.jpg', img)[1].tobytes()
+
